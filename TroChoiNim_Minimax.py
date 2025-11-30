@@ -2,7 +2,8 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 import random
 import os
-import sys  # Thêm thư viện này để thoát chương trình sạch sẽ
+import sys
+import time
 
 # --- CẤU HÌNH GIAO DIỆN "PRO GAME" ---
 COLOR_BG_MAIN = "#263238"
@@ -13,6 +14,9 @@ COLOR_TEXT_DIM = "#90A4AE"
 COLOR_P1 = "#FFAB91"
 COLOR_P2 = "#81D4FA"
 COLOR_AI = "#E1BEE7"
+COLOR_DRAW = "#BDBDBD" 
+COLOR_TIMER_NORMAL = "#B2DFDB" 
+COLOR_TIMER_URGENT = "#FF5252" 
 
 COLOR_BTN_TEXT = "#263238"
 BTN_CONFIRM_BG = "#66BB6A"
@@ -113,10 +117,16 @@ class SetupDialog(tk.Toplevel):
 
         self.f_ai = tk.Frame(bottom_frame, bg=COLOR_BG_MAIN)
         self.f_ai.pack(pady=10, anchor="w")
-        tk.Label(self.f_ai, text="Độ khó AI:", **lbl_style).pack(side=tk.LEFT)
-        self.ai_mode = ttk.Combobox(self.f_ai, values=["Dễ", "Trung bình", "Khó"], state="readonly", width=12)
+        
+        tk.Label(self.f_ai, text="AI:", **lbl_style).pack(side=tk.LEFT)
+        self.ai_mode = ttk.Combobox(self.f_ai, values=["Dễ", "Trung bình", "Khó"], state="readonly", width=10)
         self.ai_mode.set("Trung bình")
         self.ai_mode.pack(side=tk.LEFT, padx=5)
+
+        tk.Label(self.f_ai, text=" |  Thời gian (s):", **lbl_style).pack(side=tk.LEFT, padx=(10, 0))
+        self.time_limit_var = ttk.Combobox(self.f_ai, values=["10", "15", "20", "30", "45", "60", "90", "120"], width=5, state="readonly")
+        self.time_limit_var.set("30") 
+        self.time_limit_var.pack(side=tk.LEFT, padx=5)
 
         tk.Button(bottom_frame, text="✅ BẮT ĐẦU GAME", command=self.confirm, bg=BTN_CONFIRM_BG, fg=COLOR_BTN_TEXT, font=("Verdana", 12, "bold"), width=20, height=2, relief="flat", cursor="hand2").pack(pady=10)
         self.update_inputs()
@@ -160,9 +170,17 @@ class SetupDialog(tk.Toplevel):
         try:
             h = [int(e.get()) for e in self.heap_entries]
             if any(x < 1 for x in h): raise ValueError
+            
+            t_limit = int(self.time_limit_var.get())
             mode_str = self.mode_var.get()
             game_mode = "PvP" if mode_str == "Người vs Người" else "PvAI"
-            self.result = {"heaps": h, "ai_mode": self.ai_mode.get(), "game_mode": game_mode}
+            
+            self.result = {
+                "heaps": h, 
+                "ai_mode": self.ai_mode.get(), 
+                "game_mode": game_mode,
+                "time_limit": t_limit
+            }
             self.destroy()
         except: messagebox.showerror("Lỗi", "Số liệu không hợp lệ")
 
@@ -186,6 +204,14 @@ class NimGameApp:
         self.temp_heaps = list(self.heaps)
         self.stats = {"p1": 0, "p2": 0, "ai": 0, "g": 0}
 
+        # --- BIẾN CHO ĐỒNG HỒ ---
+        self.setting_time_limit = 30 
+        self.time_left = self.setting_time_limit
+        self.timer_id = None
+        
+        # --- BIẾN CHO AFK (TREO MÁY) ---
+        self.last_activity_time = time.time() 
+
         self.setup_main_ui()
         self.reset_game()
 
@@ -196,17 +222,19 @@ class NimGameApp:
             self.root.geometry("1100x850")
 
     def close_game(self):
-        """Hàm thoát game an toàn"""
+        self.stop_timer() 
         if messagebox.askokcancel("Thoát", "Bạn có chắc muốn thoát game?"):
             self.root.destroy()
             sys.exit()
+        else:
+            # Nếu không thoát, chạy lại timer (nếu đang trong lượt người chơi)
+            if self.turn != "AI":
+                self.countdown()
 
     def setup_main_ui(self):
         top_frame = tk.Frame(self.root, bg=COLOR_BG_MAIN)
         top_frame.pack(pady=20, fill="x")
         
-        # --- CẬP NHẬT NÚT THOÁT ---
-        # Gọi hàm self.close_game thay vì quit
         exit_btn = tk.Button(top_frame, text="❌ Thoát", command=self.close_game, 
                              bg="#D32F2F", fg="white", font=("Verdana", 10, "bold"), relief="flat", cursor="hand2")
         exit_btn.pack(side=tk.RIGHT, padx=20)
@@ -215,6 +243,10 @@ class NimGameApp:
         
         self.lbl_status = tk.Label(top_frame, text="Sẵn sàng", font=("Verdana", 16, "bold"), bg=COLOR_BG_MAIN, fg=COLOR_P1)
         self.lbl_status.pack(pady=5)
+        
+        self.lbl_timer = tk.Label(top_frame, text=f"⏳ {self.setting_time_limit}s", font=("Verdana", 14, "bold"), bg=COLOR_BG_MAIN, fg=COLOR_TIMER_NORMAL)
+        self.lbl_timer.pack(pady=2)
+
         self.lbl_info = tk.Label(top_frame, text="", bg=COLOR_BG_MAIN, fg=COLOR_TEXT_DIM, font=("Verdana", 10, "italic"))
         self.lbl_info.pack()
 
@@ -268,7 +300,20 @@ class NimGameApp:
 
     def show_guide(self):
         filename = "huong_dan.txt"
-        default_rules = ""
+        default_rules = f"""🎲 LUẬT CHƠI NIM:
+
+1️⃣ Có nhiều đống đá
+2️⃣ Mỗi lượt lấy ÍT NHẤT 1 viên từ MỘT đống
+3️⃣ Đồng hồ CHẠY NGAY khi bắt đầu lượt!
+4️⃣ Nếu chỉ còn 1 viên duy nhất: Có 60 giây để đánh, nếu không sẽ THUA!
+5️⃣ Người lấy viên CUỐI CÙNG = THẮNG
+6️⃣ Nếu 2 phút không ai hoàn thành lượt đi: HÒA
+
+💡 Chiến thuật:
+- Cố gắng để lại số viên XOR = 0 cho đối thủ
+- Chế độ "Khó" của AI sử dụng thuật toán Minimax hoàn hảo!
+
+🎮 Chúc may mắn!"""
 
         try:
             if not os.path.exists(filename):
@@ -279,6 +324,95 @@ class NimGameApp:
             messagebox.showinfo("Hướng dẫn cách chơi", rules)
         except Exception as e:
             messagebox.showerror("Lỗi", f"Không đọc được file: {e}")
+
+    # --- CÁC HÀM XỬ LÝ ĐỒNG HỒ ---
+    def start_timer(self):
+        self.stop_timer()
+        if self.turn == "AI": return 
+
+        if sum(self.heaps) == 1:
+            self.time_left = 60
+        else:
+            self.time_left = self.setting_time_limit
+            
+        self.update_timer_display()
+        self.countdown()
+
+    def reset_timer_ui(self):
+        """Hàm này chỉ cập nhật số, không dừng timer. Vì timer luôn chạy."""
+        self.time_left = self.setting_time_limit
+        self.update_timer_display()
+
+    def stop_timer(self):
+        if self.timer_id:
+            self.root.after_cancel(self.timer_id)
+            self.timer_id = None
+
+    def update_timer_display(self):
+        color = COLOR_TIMER_NORMAL
+        if self.time_left <= 10:
+            color = COLOR_TIMER_URGENT
+        
+        if sum(self.heaps) == 1:
+            self.lbl_timer.config(text=f"🔥 {self.time_left}s (CHỐT HẠ)", fg="#FF5252")
+        else:
+            self.lbl_timer.config(text=f"⏳ {self.time_left}s", fg=color)
+
+    def countdown(self):
+        # --- KIỂM TRA TREO MÁY 2 PHÚT ---
+        if sum(self.heaps) > 1:
+            idle_duration = time.time() - self.last_activity_time
+            if idle_duration >= 120:
+                self.end_game("💤 HÒA! TRÒ CHƠI KẾT THÚC DO TREO MÁY QUÁ 2 PHÚT! 💤", "DRAW")
+                return
+        # ---------------------------------------------
+
+        if self.time_left > 0:
+            self.time_left -= 1
+            self.update_timer_display()
+            self.timer_id = self.root.after(1000, self.countdown)
+        else:
+            self.handle_timeout()
+
+    def handle_timeout(self):
+        self.stop_timer()
+        self.undo_selection() 
+        
+        # --- THUA KHI HẾT GIỜ Ở VIÊN CUỐI ---
+        if sum(self.heaps) == 1:
+            winner = ""
+            loser_name = "BẠN" if self.turn == "PLAYER 1" and self.game_mode == "PvAI" else self.turn
+            if self.game_mode == "PvAI":
+                winner = "AI" 
+                self.stats["ai"] += 1
+            else:
+                if self.turn == "PLAYER 1":
+                    winner = "PLAYER 2"
+                    self.stats["p2"] += 1
+                else:
+                    winner = "PLAYER 1"
+                    self.stats["p1"] += 1
+            
+            msg = f"⌛ HẾT GIỜ! {loser_name} ĐÃ THUA VÌ KHÔNG ĐÁNH VIÊN CUỐI!"
+            self.end_game(msg, winner)
+            return
+        # -----------------------------------------------
+
+        # Thông báo mất lượt bình thường
+        who = "BẠN" if self.turn == "PLAYER 1" and self.game_mode == "PvAI" else self.turn
+        messagebox.showinfo("HẾT GIỜ!", f"Đã hết thời gian! {who} bị mất lượt.")
+        
+        if self.game_mode == "PvAI":
+            if self.turn == "PLAYER 1":
+                self.turn = "AI"
+                self.prepare_next_turn()
+                self.root.after(1000, self.ai_move)
+        else:
+            if self.turn == "PLAYER 1": self.turn = "PLAYER 2"
+            else: self.turn = "PLAYER 1"
+            self.prepare_next_turn()
+
+    # --- KẾT THÚC HÀM ĐỒNG HỒ ---
 
     def show_action_buttons(self):
         self.action_frame.pack(side=tk.LEFT, padx=10, before=self.system_frame)
@@ -333,7 +467,11 @@ class NimGameApp:
         if self.selected_heap == idx and self.temp_heaps[idx] > 0:
             self.temp_heaps[idx] -= 1
             self.taken_count += 1
-            if self.taken_count == 1: self.show_action_buttons()
+            
+            # --- LOGIC MỚI: Đồng hồ đã chạy sẵn rồi, không cần kích hoạt lại ---
+            if self.taken_count == 1: 
+                self.show_action_buttons()
+            
             self.update_board()
 
     def undo_selection(self):
@@ -341,10 +479,21 @@ class NimGameApp:
         self.selected_heap = -1
         self.taken_count = 0
         self.hide_action_buttons()
+        
+        # --- LOGIC MỚI: UNDO KHÔNG DỪNG ĐỒNG HỒ, NÓ VẪN CHẠY TIẾP ---
+        # Chỉ reset lại hiển thị 60s nếu là vòng cuối để ép time
+        if sum(self.heaps) == 1:
+            self.time_left = 60
+            self.update_timer_display()
+        
         self.update_board()
 
     def finish_turn(self):
         if self.taken_count == 0: return
+        self.stop_timer() 
+        
+        self.last_activity_time = time.time()
+        
         self.heaps = list(self.temp_heaps)
         
         if sum(self.heaps) == 0:
@@ -379,9 +528,20 @@ class NimGameApp:
         self.update_status_label()
         self.update_board()
 
+        total_stones = sum(self.heaps)
+        if total_stones == 1:
+            messagebox.showinfo("CẢNH BÁO", "Chỉ còn 1 viên cuối cùng!\nBạn có 60 giây để đánh, nếu không bạn sẽ THUA!")
+        
+        # --- BẮT BUỘC CHẠY TIMER NGAY KHI CHUYỂN LƯỢT ---
+        self.start_timer()
+
     def ai_move(self):
+        self.stop_timer() 
         self.heaps = self.ai.get_move(self.heaps, self.ai_difficulty)
         self.temp_heaps = list(self.heaps)
+        
+        self.last_activity_time = time.time()
+
         if sum(self.heaps) == 0:
             self.stats["ai"] += 1
             self.end_game("💀 AI ĐÃ CHIẾN THẮNG! 💀", "AI")
@@ -390,37 +550,56 @@ class NimGameApp:
             self.prepare_next_turn()
 
     def end_game(self, msg, winner):
-        self.stats["g"] += 1
+        self.stop_timer()
+        if winner != "DRAW":
+            self.stats["g"] += 1
+            
         self.update_status_label()
         color = COLOR_P1
         if winner == "AI": color = COLOR_AI
         elif winner == "PLAYER 2": color = COLOR_P2
+        elif winner == "DRAW": color = COLOR_DRAW
+            
         self.lbl_status.config(text=msg, fg=color)
         self.hide_action_buttons()
         messagebox.showinfo("KẾT QUẢ", msg)
         self.update_board()
 
     def reset_game(self):
+        self.stop_timer()
         self.heaps = list(self.initial_heaps)
         self.temp_heaps = list(self.heaps)
         self.turn = "PLAYER 1"
         self.selected_heap = -1
         self.taken_count = 0
         self.hide_action_buttons()
+        
+        self.last_activity_time = time.time() 
+
         self.update_status_label()
         self.update_board()
+        
+        # --- BẮT BUỘC CHẠY TIMER NGAY KHI RESET ---
+        self.start_timer()
 
     def open_setup(self):
+        self.stop_timer()
         d = SetupDialog(self.root)
         self.root.wait_window(d)
         if d.result:
             self.initial_heaps = d.result["heaps"]
             self.ai_difficulty = d.result["ai_mode"]
             self.game_mode = d.result["game_mode"]
+            self.setting_time_limit = d.result["time_limit"]
             self.stats = {"p1": 0, "p2": 0, "ai": 0, "g": 0}
             self.reset_game()
             mode = "Người vs Máy" if self.game_mode == "PvAI" else "Người vs Người"
-            messagebox.showinfo("Cài đặt xong", f"Đã lưu: {mode} ({len(self.initial_heaps)} đống)")
+            messagebox.showinfo("Cài đặt xong", f"Đã lưu: {mode}, {self.setting_time_limit}s/lượt")
+        else:
+            if self.turn != "AI":
+                if sum(self.heaps) == 1: self.start_timer()
+                elif self.taken_count > 0: self.countdown()
+                else: self.start_timer() # Resume timer bình thường
 
 if __name__ == "__main__":
     root = tk.Tk()
