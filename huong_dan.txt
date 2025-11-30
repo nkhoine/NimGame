@@ -1,0 +1,20 @@
+=== 📜 LUẬT CHƠI NIM MASTER ===
+
+1. MỤC TIÊU:
+   Người lấy được viên sỏi cuối cùng trên bàn cờ sẽ là người CHIẾN THẮNG! 🏆
+
+2. CÁCH CHƠI:
+   - Trò chơi bắt đầu với các đống sỏi có số lượng khác nhau.
+   - Hai bên (Người hoặc Máy) sẽ thay phiên nhau đi.
+   - Đến lượt của mình, bạn phải thực hiện 2 bước:
+     + Bước 1: Chọn một đống sỏi bất kỳ (bằng cách bấm vào viên sỏi trong đống đó).
+     + Bước 2: Chọn số lượng sỏi muốn lấy (bấm tiếp để lấy thêm hoặc bấm nút "Quay lại" để chọn lại).
+   - Bạn bắt buộc phải lấy ít nhất 1 viên.
+   - Bạn có thể lấy hết toàn bộ sỏi trong một đống nếu muốn.
+
+3. MẸO CHIẾN THẮNG:
+   - Hãy cố gắng đưa tổng Nim-sum của các đống sỏi về 0 sau lượt đi của bạn.
+   - Nim-sum là phép cộng XOR (nhị phân) số lượng sỏi của các đống.
+   - Nếu bạn giữ được thế trận này, đối thủ chắc chắn sẽ thua!
+
+Chúc bạn chơi game vui vẻ! 🎮
